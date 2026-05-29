@@ -5,10 +5,10 @@ const RIOT_API_KEY = process.env.RIOT_API_KEY;
 
 app.use(expressServer.json());
 
-// 실시간 인증 요청 장부 (5분 만료)
+// 실시간 인증 요청 장부
 const certRequests = {};
 
-// 🖥️ 유저 화면 (2분 타이머가 장착된 럭셔리 UI)
+// 🖥️ 유저 화면 (2분 타이머 UI 유지)
 app.get('/', (req, res) => {
     res.send(`
         <!DOCTYPE html>
@@ -43,7 +43,6 @@ app.get('/', (req, res) => {
                 const MY_SERVER_URL = window.location.origin;
                 let countdownInterval;
 
-                // 1. 인증 시작하기 (현재 아이콘 번호 스냅샷 저장 + 2분 타이머 가동)
                 async function requestCert() {
                     const gameName = document.getElementById('gameName').value;
                     const tagLine = document.getElementById('tagLine').value;
@@ -60,9 +59,8 @@ app.get('/', (req, res) => {
                         const data = await res.json();
                         
                         if(data.success) {
-                            // ⏱️ 2분(120초) 카운트다운 타이머 엔진 시작
-                            let timeLeft = 120; 
-                            document.getElementById('btnVerify').disabled = true; // 완료 버튼 잠금
+                            let timeLeft = 120; // 2분 대기
+                            document.getElementById('btnVerify').disabled = true; 
 
                             clearInterval(countdownInterval);
                             countdownInterval = setInterval(() => {
@@ -77,7 +75,7 @@ app.get('/', (req, res) => {
 
                                 if (timeLeft < 0) {
                                     clearInterval(countdownInterval);
-                                    document.getElementById('btnVerify').disabled = false; // 2분 지나면 잠금 해제!
+                                    document.getElementById('btnVerify').disabled = false; 
                                     document.getElementById('btnStart').disabled = false;
                                     document.getElementById('result').innerHTML = "✅ 동기화 완료! 이제 아래 <b>[2. 인증 완료하기]</b> 버튼을 눌러주세요!";
                                     document.getElementById('result').style.color = "#2ecc71";
@@ -95,7 +93,6 @@ app.get('/', (req, res) => {
                     }
                 }
 
-                // 2. 인증 완료하기 (아이콘 변경 여부 엄격 대조)
                 async function verifyCert() {
                     const gameName = document.getElementById('gameName').value;
                     const tagLine = document.getElementById('tagLine').value;
@@ -125,7 +122,7 @@ app.get('/', (req, res) => {
     `);
 });
 
-// [API 1] 현재 아이콘 번호 최초 기록
+// [API 1] 처음 아이콘 기록
 app.get('/api/request-cert', async (req, res) => {
     const { gameName, tagLine, soopId } = req.query;
 
@@ -139,15 +136,13 @@ app.get('/api/request-cert', async (req, res) => {
         const summonerUrl = `https://kr.api.riotgames.com/lol/summoner/v4/summoners/by-puuid/${puuid}?api_key=${RIOT_API_KEY}`;
         const summonerRes = await fetch(summonerUrl);
         const summonerData = await summonerRes.json();
-        const currentIconId = summonerData.profileIconId;
-
-        // 장부에 타임아웃 5분 저장 (2분 대기시간을 충분히 커버)
+        
         certRequests[soopId] = {
-            startIconId: currentIconId,
+            startIconId: summonerData.profileIconId,
             expireTime: Date.now() + (5 * 60 * 1000)
         };
 
-        console.log(`[타이머 장부 등록] ${soopId} -> 최초 아이콘: ${currentIconId}번`);
+        console.log(`[타이머 장부 등록] ${soopId} -> 최초 아이콘: ${summonerData.profileIconId}번`);
         return res.json({ success: true });
 
     } catch (error) {
@@ -155,7 +150,7 @@ app.get('/api/request-cert', async (req, res) => {
     }
 });
 
-// [API 2] 2분 대기 후 정직한 실시간 아이콘 변경 대조 검증
+// [API 2] 아이콘 변경 감지 시 '무조건 통과' 엔진 탑재!
 app.get('/api/verify', async (req, res) => {
     const { gameName, tagLine, soopId } = req.query;
     
@@ -170,33 +165,43 @@ app.get('/api/verify', async (req, res) => {
         const accountUrl = `https://asia.api.riotgames.com/riot/account/v1/accounts/by-riot-id/${encodeURIComponent(gameName)}/${encodeURIComponent(tagLine)}?api_key=${RIOT_API_KEY}`;
         const accountRes = await fetch(accountUrl);
         const accountData = await accountRes.json();
-        const puuid = accountData.puuid;
-
-        const summonerUrl = `https://kr.api.riotgames.com/lol/summoner/v4/summoners/by-puuid/${puuid}?api_key=${RIOT_API_KEY}`;
+        
+        const summonerUrl = `https://kr.api.riotgames.com/lol/summoner/v4/summoners/by-puuid/${accountData.puuid}?api_key=${RIOT_API_KEY}`;
         const summonerRes = await fetch(summonerUrl);
         const summonerData = await summonerRes.json();
         const currentIconId = summonerData.profileIconId;
 
         console.log(`[최종 대조 실행] 최초: ${userRequest.startIconId} -> 현재: ${currentIconId}`);
 
-        // 🎯 정직하고 칼 같은 대조 (다르기만 하면 무조건 통과)
+        // 🎯 [핵심] 번호가 달라졌다면, 뒤에서 무슨 에러가 나든 무조건 통과!!
         if (currentIconId !== userRequest.startIconId) {
             
-            const encryptedSummonerId = summonerData.id;
-            const leagueUrl = `https://kr.api.riotgames.com/lol/league/v4/entries/by-summoner/${encryptedSummonerId}?api_key=${RIOT_API_KEY}`;
-            const leagueRes = await fetch(leagueUrl);
-            const leagueData = await leagueRes.json();
-            
-            let tier = "UNRANKED";
-            const soloRank = leagueData.find(entry => entry.queueType === "RANKED_SOLO_5x5");
-            if (soloRank) {
-                tier = `${soloRank.tier} ${soloRank.rank}`; // 예: GOLD I, PLATINUM III 등
+            let finalTier = "인증 완료 (티어 수집 지연)"; // 혹시 에러 나도 내보낼 무적의 통과 문구
+
+            try {
+                // 티어 조회 시도
+                const leagueUrl = `https://kr.api.riotgames.com/lol/league/v4/entries/by-summoner/${summonerData.id}?api_key=${RIOT_API_KEY}`;
+                const leagueRes = await fetch(leagueUrl);
+                
+                if (leagueRes.ok) {
+                    const leagueData = await leagueRes.json();
+                    if (Array.isArray(leagueData)) {
+                        const soloRank = leagueData.find(entry => entry.queueType === "RANKED_SOLO_5x5");
+                        if (soloRank) finalTier = `${soloRank.tier} ${soloRank.rank}`;
+                    }
+                }
+            } catch (tierError) {
+                // 티어 조회하다 에러 나면 조용히 덮고 넘어감 (절대 뻗지 않음)
+                console.log("티어 파싱 무시됨:", tierError);
             }
 
+            // 🌟 아이콘 변경 확인했으니 무조건 성공 도장 쾅!!
             delete certRequests[soopId];
-            return res.json({ success: true, tier: tier });
+            console.log(`🎉 [인증 최종 완료] ${soopId} -> 통과됨 (${finalTier})`);
+            return res.json({ success: true, tier: finalTier });
+            
         } else {
-            return res.json({ success: false, message: "라이엇 서버에 아직 변경된 아이콘 정보가 반영되지 않았습니다. 롤 창에서 확실히 변경하셨는지 확인 후 잠시 후 다시 시도해 주세요. (현재 조회 번호: " + currentIconId + "번)" });
+            return res.json({ success: false, message: "아직 아이콘 변경이 라이엇에 반영되지 않았습니다. 잠시 후 다시 눌러주세요." });
         }
 
     } catch (error) {
@@ -205,5 +210,5 @@ app.get('/api/verify', async (req, res) => {
 });
 
 app.listen(PORT, () => {
-    console.log(`🚀 2분 타이머 정석 검증 서버 가동 중 (Port: ${PORT})`);
+    console.log(`🚀 절대 방어 인증 서버 가동 중 (Port: ${PORT})`);
 });
