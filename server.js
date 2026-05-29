@@ -5,8 +5,7 @@ const RIOT_API_KEY = process.env.RIOT_API_KEY;
 
 app.use(expressServer.json());
 
-// 📝 [핵심 추가] 실시간 인증 요청서 보관함 (여기에 숲ID, 발급된 아이콘, 제한시간이 저장됩니다)
-// 구조: { "soopId": { requiredIconId: 23, expireTime: 1716999999999 } }
+// 📝 실시간 인증 요청서 보관함
 const certRequests = {};
 
 // 🖥️ 유저들이 접속했을 때 보여줄 화면
@@ -41,7 +40,6 @@ app.get('/', (req, res) => {
             <script>
                 const MY_SERVER_URL = window.location.origin;
 
-                // 1. 인증 시작하기 (랜덤 아이콘 발급 + 5분 타이머 작동)
                 async function requestCert() {
                     const soopId = document.getElementById('soopId').value;
                     if(!soopId) {
@@ -61,7 +59,6 @@ app.get('/', (req, res) => {
                     }
                 }
 
-                // 2. 인증 완료하기 (실시간 검증 및 타임아웃 확인)
                 async function verifyCert() {
                     const gameName = document.getElementById('gameName').value;
                     const tagLine = document.getElementById('tagLine').value;
@@ -92,15 +89,12 @@ app.get('/', (req, res) => {
     `);
 });
 
-// 🎲 [개조 1] 유저마다 랜덤 아이콘 번호를 정해주고 "5분 타이머" 낙인 찍기
+// 🎲 1. 랜덤 아이콘 지정 + 5분 타이머 작동
 app.get('/api/request-cert', (req, res) => {
     const { soopId } = req.query;
     if (!soopId) return res.json({ success: false, message: "SOOP ID가 누락되었습니다." });
 
-    // 누구나 기본으로 가지고 있는 무료 기본 아이콘들 중 하나를 랜덤 추출 (0번 ~ 28번 사이)
     const randomIconId = Math.floor(Math.random() * 29); 
-    
-    // 현재 시간에 5분(5 * 60 * 1000 밀리초)을 더해 만료 시간 장부에 기록
     const expireTime = Date.now() + (5 * 60 * 1000); 
 
     certRequests[soopId] = {
@@ -108,4 +102,61 @@ app.get('/api/request-cert', (req, res) => {
         expireTime: expireTime
     };
 
-    console.log(`⏳
+    console.log(`⏳ [인증 요청] ID: ${soopId} -> 요구 아이콘: ${randomIconId}번`);
+    return res.json({ requiredIconId: randomIconId });
+});
+
+// 🎯 2. 라이엇 실시간 아이콘 비교 + 5분 만료 검증
+app.get('/api/verify', async (req, res) => {
+    const { gameName, tagLine, soopId } = req.query;
+    
+    const userRequest = certRequests[soopId];
+    if (!userRequest) {
+        return res.json({ success: false, message: "[1. 인증 시작하기] 버튼을 먼저 눌러주세요." });
+    }
+
+    if (Date.now() > userRequest.expireTime) {
+        delete certRequests[soopId];
+        return res.json({ success: false, message: "인증 제한시간(5분)이 만료되었습니다. 다시 시작해 주세요." });
+    }
+
+    try {
+        const accountUrl = `https://asia.api.riotgames.com/riot/account/v1/accounts/by-riot-id/${encodeURIComponent(gameName)}/${encodeURIComponent(tagLine)}?api_key=${RIOT_API_KEY}`;
+        const accountRes = await fetch(accountUrl);
+        
+        if (!accountRes.ok) {
+            return res.json({ success: false, message: "존재하지 않는 롤 닉네임 또는 태그입니다." });
+        }
+        const accountData = await accountRes.json();
+        const puuid = accountData.puuid;
+
+        const summonerUrl = `https://kr.api.riotgames.com/lol/summoner/v4/summoners/by-puuid/${puuid}?api_key=${RIOT_API_KEY}`;
+        const summonerRes = await fetch(summonerUrl);
+        const summonerData = await summonerRes.json();
+        const currentIconId = summonerData.profileIconId;
+
+        if (currentIconId === userRequest.requiredIconId) {
+            const id = summonerData.id;
+            const leagueUrl = `https://kr.api.riotgames.com/lol/league/v4/entries/by-summoner/${id}?api_key=${RIOT_API_KEY}`;
+            const leagueRes = await fetch(leagueUrl);
+            const leagueData = await leagueRes.json();
+            
+            let tier = "UNRANKED";
+            const soloRank = leagueData.find(entry => entry.queueType === "RANKED_SOLO_5x5");
+            if (soloRank) {
+                tier = soloRank.tier;
+            }
+
+            delete certRequests[soopId];
+            return res.json({ success: true, tier: tier });
+        } else {
+            return res.json({ success: false, message: `아이콘 번호가 일치하지 않습니다. (요구된 번호: ${userRequest.requiredIconId}번 / 현재 내 아이콘: ${currentIconId}번)` });
+        }
+    } catch (error) {
+        return res.json({ success: false, message: "라이엇 서버와 통신 중 에러가 발생했습니다." });
+    }
+});
+
+app.listen(PORT, () => {
+    console.log(`🚀 배포용 인증 서버가 포트 ${PORT} 에서 활기차게 돌아가고 있습니다!`);
+});
