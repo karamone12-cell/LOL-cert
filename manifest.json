@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "SOOP 롤 티어 인증기",
-  "version": "1.0",
-  "description": "SOOP 채팅창에 롤 티어를 연동하여 표시합니다.",
+  "version": "1.1",
+  "description": "SOOP 채팅창에 롤 티어를 연동하고 ID를 자동 추출합니다.",
   "permissions": ["activeTab"],
   "content_scripts": [
     {
@@ -12,7 +12,8 @@
         "http://*.sooplive.com/*",
         "https://*.sooplive.com/*",
         "https://play.sooplive.co.kr/*",
-        "https://ch.sooplive.co.kr/*"
+        "https://ch.sooplive.co.kr/*",
+        "https://lol-cert.onrender.com/*"
       ],
       "js": ["content.js"],
       "run_at": "document_end"
