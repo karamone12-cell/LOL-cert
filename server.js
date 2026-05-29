@@ -3,13 +3,12 @@ const app = expressServer();
 const PORT = process.env.PORT || 3000;
 const RIOT_API_KEY = process.env.RIOT_API_KEY; 
 
-// 🔥 확장프로그램 통신 허용 (CORS)
 const cors = require('cors');
 app.use(cors());
 app.use(expressServer.json());
 
 const certRequests = {};
-const verifiedUsers = {}; // 인증 성공한 유저 영구 저장소
+const verifiedUsers = {}; 
 
 app.get('/', (req, res) => {
     res.send(`
@@ -105,16 +104,30 @@ app.get('/api/verify', async (req, res) => {
         const summonerRes = await fetch(`https://kr.api.riotgames.com/lol/summoner/v4/summoners/by-puuid/${puuid}?api_key=${RIOT_API_KEY}`);
         const { profileIconId, id } = await summonerRes.json();
 
+        // 🎯 본인 인증 성공!
         if (profileIconId !== reqData.startIconId) {
-            let finalTier = "인증 완료";
+            
+            let finalTier = "UNRANKED (언랭크)"; // 기본값을 언랭크로 설정
+
             try {
                 const leagueRes = await fetch(`https://kr.api.riotgames.com/lol/league/v4/entries/by-summoner/${id}?api_key=${RIOT_API_KEY}`);
+                
                 if (leagueRes.ok) {
                     const leagueData = await leagueRes.json();
                     const solo = leagueData.find(e => e.queueType === "RANKED_SOLO_5x5");
-                    if (solo) finalTier = `${solo.tier} ${solo.rank}`;
+                    if (solo) {
+                        finalTier = `${solo.tier} ${solo.rank}`; // 예: GOLD I
+                    }
+                } else if (leagueRes.status === 403) {
+                    finalTier = "API 키 만료됨";
+                } else if (leagueRes.status === 429) {
+                    finalTier = "라이엇 서버 과부하 (잠시 후 시도)";
+                } else {
+                    finalTier = `조회 오류 (${leagueRes.status})`;
                 }
-            } catch(e) {}
+            } catch(e) {
+                finalTier = "서버 통신 실패";
+            }
 
             verifiedUsers[soopId] = finalTier; 
             delete certRequests[soopId];
