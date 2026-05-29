@@ -5,7 +5,7 @@ const RIOT_API_KEY = process.env.RIOT_API_KEY;
 
 app.use(expressServer.json());
 
-// 🖥️ [추가] 일반 유저들이 접속했을 때 보여줄 실제 인증 홈페이지 화면 (HTML)
+// 🖥️ 유저들이 접속했을 때 보여줄 진짜 화면 (주소 꼬임 완전 방지 버전)
 app.get('/', (req, res) => {
     res.send(`
         <!DOCTYPE html>
@@ -16,10 +16,10 @@ app.get('/', (req, res) => {
             <style>
                 body { font-family: Arial, sans-serif; text-align: center; background-color: #1a1a1a; color: white; padding-top: 50px; }
                 .container { background-color: #2b2b2b; width: 400px; margin: 0 auto; padding: 30px; border-radius: 10px; box-shadow: 0 0 10px rgba(0,0,0,0.5); }
-                input { width: 80%; padding: 10px; margin: 10px 0; border-radius: 5px; border: none; }
-                button { width: 85%; padding: 12px; background-color: #f4c64d; border: none; border-radius: 5px; font-weight: bold; cursor: pointer; font-size: 16px; margin-top: 10px; }
+                input { width: 80%; padding: 10px; margin: 10px 0; border-radius: 5px; border: none; font-size: 14px; text-align: center; }
+                button { width: 85%; padding: 12px; background-color: #f4c64d; border: none; border-radius: 5px; font-weight: bold; cursor: pointer; font-size: 16px; margin-top: 10px; color: black; }
                 button:hover { background-color: #ddb23b; }
-                #result { margin-top: 20px; font-weight: bold; color: #2ecc71; white-space: pre-line; }
+                #result { margin-top: 20px; font-weight: bold; color: #2ecc71; white-space: pre-line; line-height: 1.6; font-size: 14px; }
             </style>
         </head>
         <body>
@@ -35,26 +35,39 @@ app.get('/', (req, res) => {
             </div>
 
             <script>
+                // 🎯 주소창의 진짜 도메인 주소를 알아서 추출하는 안전장치
+                const MY_SERVER_URL = window.location.origin;
+
                 // 1. 인증 시작 버튼 클릭 시
                 async function requestCert() {
-                    const res = await fetch('/api/request-cert');
-                    const data = await res.json();
-                    document.getElementById('result').innerText = "📢 [인증 안내]\n롤 클라이언트를 켜고 아이콘을 [" + data.requiredIconId + "번]으로 변경하신 후, 아래 [2. 인증 완료하기] 버튼을 눌러주세요!";
-                    document.getElementById('result').style.color = "#f1c40f";
+                    try {
+                        const res = await fetch(MY_SERVER_URL + '/api/request-cert');
+                        const data = await res.json();
+                        document.getElementById('result').innerText = "📢 [인증 안내]\\n롤 클라이언트를 켜고 아이콘을 [" + data.requiredIconId + "번]으로 변경하신 후, 아래 [2. 인증 완료하기] 버튼을 눌러주세요!";
+                        document.getElementById('result').style.color = "#f1c40f";
+                    } catch(e) {
+                        document.getElementById('result').innerText = "❌ 통신 에러 발생";
+                        document.getElementById('result').style.color = "#e45252";
+                    }
                 }
 
                 // 2. 인증 완료 버튼 클릭 시
                 async function verifyCert() {
                     const gameName = document.getElementById('gameName').value;
                     const tagLine = document.getElementById('tagLine').value;
-                    const res = await fetch('/api/verify?gameName=' + gameName + '&tagLine=' + tagLine);
-                    const data = await res.json();
-                    
-                    if(data.success) {
-                        document.getElementById('result').innerText = "🎉 인증 성공!\n이제 숲 채팅창에서 당신의 티어가 빛납니다!";
-                        document.getElementById('result').style.color = "#2ecc71";
-                    } else {
-                        document.getElementById('result').innerText = "❌ 인증 실패: " + data.message;
+                    try {
+                        const res = await fetch(MY_SERVER_URL + '/api/verify?gameName=' + encodeURIComponent(gameName) + '&tagLine=' + encodeURIComponent(tagLine));
+                        const data = await res.json();
+                        
+                        if(data.success) {
+                            document.getElementById('result').innerText = "🎉 인증 성공!\\n이제 숲 채팅창에서 당신의 티어가 빛납니다!";
+                            document.getElementById('result').style.color = "#2ecc71";
+                        } else {
+                            document.getElementById('result').innerText = "❌ 인증 실패: " + data.message;
+                            document.getElementById('result').style.color = "#e45252";
+                        }
+                    } catch(e) {
+                        document.getElementById('result').innerText = "❌ 통신 에러 발생";
                         document.getElementById('result').style.color = "#e45252";
                     }
                 }
