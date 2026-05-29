@@ -3,16 +3,13 @@ const app = expressServer();
 const PORT = process.env.PORT || 3000;
 const RIOT_API_KEY = process.env.RIOT_API_KEY; 
 
-// 🔥 확장프로그램 통신 허용 (CORS)
 const cors = require('cors');
 app.use(cors());
 app.use(expressServer.json());
 
-// 서버 메모리 장부
-const certRequests = {}; // 진행 중인 인증 
-const verifiedUsers = {}; // 인증 성공한 유저 영구 저장소
+const certRequests = {}; 
+const verifiedUsers = {}; 
 
-// 🖥️ 1. 유저용 웹사이트 화면
 app.get('/', (req, res) => {
     res.send(`
         <!DOCTYPE html>
@@ -27,22 +24,21 @@ app.get('/', (req, res) => {
                 button { width: 85%; padding: 12px; background-color: #f4c64d; border: none; border-radius: 5px; font-weight: bold; cursor: pointer; font-size: 16px; margin-top: 10px; transition: all 0.3s; }
                 button:disabled { background-color: #555 !important; color: #aaa !important; cursor: not-allowed; }
                 #result { margin-top: 20px; font-weight: bold; color: #2ecc71; white-space: pre-line; line-height: 1.6; }
-                .timer-txt { color: #e74c3c; font-size: 18px; font-weight: bold; }
+                .guide-txt { color: #f1c40f; font-size: 15px; font-weight: normal; margin-top: 10px; }
             </style>
         </head>
         <body>
             <div class="container">
-                <h2>🏆 SOOP 롤 티어 자동 인증기</h2>
+                <h2>🏆 SOOP 롤 티어 하이패스 인증기</h2>
                 <input type="text" id="gameName" placeholder="롤 닉네임">
                 <input type="text" id="tagLine" placeholder="태그 (예: KR1)">
                 <input type="text" id="soopId" placeholder="SOOP 아이디">
                 <button id="btnStart" onclick="requestCert()">1. 인증 시작하기</button>
-                <button id="btnVerify" onclick="verifyCert()" style="background-color: #52a9e4;" disabled>2. 인증 완료하기</button>
+                <button id="btnVerify" onclick="verifyCert()" style="background-color: #52a9e4;" disabled>2. 아이콘 변경 후 즉시 완료</button>
                 <div id="result"></div>
             </div>
             <script>
                 const MY_SERVER_URL = window.location.origin;
-                let countdownInterval;
 
                 async function requestCert() {
                     const gameName = document.getElementById('gameName').value;
@@ -53,7 +49,7 @@ app.get('/', (req, res) => {
                         return alert("모든 칸을 입력해주세요!");
                     }
 
-                    document.getElementById('result').innerText = "🔄 동기화 준비 중..."; 
+                    document.getElementById('result').innerText = "🔄 라이엇 서버와 연결 중..."; 
                     document.getElementById('btnStart').disabled = true;
 
                     try {
@@ -61,24 +57,10 @@ app.get('/', (req, res) => {
                         const data = await res.json();
                         
                         if(data.success) {
-                            let timeLeft = 120; 
-                            document.getElementById('btnVerify').disabled = true;
-
-                            countdownInterval = setInterval(() => {
-                                let m = Math.floor(timeLeft / 60);
-                                let s = timeLeft % 60; 
-                                s = s < 10 ? '0' + s : s;
-
-                                document.getElementById('result').innerHTML = "📢 <b>[롤 아이콘을 다른 것으로 변경해 주세요]</b><br><span class='timer-txt'>⏱️ 남은 시간: " + m + "분 " + s + "초</span>";
-                                timeLeft--;
-
-                                if (timeLeft < 0) {
-                                    clearInterval(countdownInterval); 
-                                    document.getElementById('btnVerify').disabled = false; 
-                                    document.getElementById('btnStart').disabled = false;
-                                    document.getElementById('result').innerHTML = "✅ 준비 완료! [2. 인증 완료하기]를 눌러주세요!";
-                                }
-                            }, 1000);
+                            // 🚀 타이머 완전 삭제! 즉시 완료 버튼 활성화
+                            document.getElementById('btnVerify').disabled = false; 
+                            document.getElementById('btnStart').disabled = false;
+                            document.getElementById('result').innerHTML = "📢 <b>[롤 클라이언트에서 아이콘을 변경해 주세요!]</b><br><div class='guide-txt'>변경하셨다면 대기 없이 바로 아래 <b>[2. 완료]</b> 버튼을 누르세요!<br>(※ 실패 시 5초 뒤에 다시 누르시면 됩니다.)</div>";
                         } else { 
                             document.getElementById('result').innerText = "❌ " + data.message; 
                             document.getElementById('btnStart').disabled = false; 
@@ -94,7 +76,8 @@ app.get('/', (req, res) => {
                     const tagLine = document.getElementById('tagLine').value;
                     const soopId = document.getElementById('soopId').value;
 
-                    document.getElementById('result').innerText = "🔄 최종 대조 중...";
+                    document.getElementById('result').innerText = "🔄 변경 확인 및 티어 수집 중...";
+                    document.getElementById('result').style.color = "#f1c40f";
                     
                     try {
                         const res = await fetch(MY_SERVER_URL + '/api/verify?gameName=' + encodeURIComponent(gameName) + '&tagLine=' + encodeURIComponent(tagLine) + '&soopId=' + encodeURIComponent(soopId));
@@ -102,8 +85,10 @@ app.get('/', (req, res) => {
                         
                         if(data.success) {
                             document.getElementById('result').innerText = "🎉 인증 성공! (" + data.tier + ")\\n이제 방송국 새로고침 시 뱃지가 자동 적용됩니다!";
+                            document.getElementById('result').style.color = "#2ecc71";
                         } else { 
-                            document.getElementById('result').innerText = "❌ " + data.message; 
+                            document.getElementById('result').innerText = "❌ " + data.message + "\\n(조금만 기다렸다가 다시 버튼을 눌러주세요!)"; 
+                            document.getElementById('result').style.color = "#e45252";
                         }
                     } catch(e) { 
                         document.getElementById('result').innerText = "❌ 통신 에러"; 
@@ -115,30 +100,21 @@ app.get('/', (req, res) => {
     `);
 });
 
-// ⚙️ 2. API: 인증 시작 (아이콘 번호 최초 기록)
 app.get('/api/request-cert', async (req, res) => {
     try {
         const { gameName, tagLine, soopId } = req.query;
-        
-        // PUUID 조회
         const accountRes = await fetch(`https://asia.api.riotgames.com/riot/account/v1/accounts/by-riot-id/${encodeURIComponent(gameName)}/${encodeURIComponent(tagLine)}?api_key=${RIOT_API_KEY}`);
         if (!accountRes.ok) return res.json({ success: false, message: "닉네임/태그 확인 요망" });
         const { puuid } = await accountRes.json();
         
-        // 소환사 정보(아이콘) 조회
         const summonerRes = await fetch(`https://kr.api.riotgames.com/lol/summoner/v4/summoners/by-puuid/${puuid}?api_key=${RIOT_API_KEY}`);
         const { profileIconId } = await summonerRes.json();
         
-        // 장부에 5분 만료 타이머와 함께 등록
         certRequests[soopId] = { startIconId: profileIconId, expireTime: Date.now() + (5 * 60 * 1000) };
         res.json({ success: true });
-
-    } catch (e) { 
-        res.json({ success: false, message: "오류 발생" }); 
-    }
+    } catch (e) { res.json({ success: false, message: "오류 발생" }); }
 });
 
-// ⚙️ 3. API: 인증 완료 (아이콘 변경 대조 및 티어+LP 수집)
 app.get('/api/verify', async (req, res) => {
     const { gameName, tagLine, soopId } = req.query;
     const reqData = certRequests[soopId];
@@ -152,58 +128,32 @@ app.get('/api/verify', async (req, res) => {
         const summonerRes = await fetch(`https://kr.api.riotgames.com/lol/summoner/v4/summoners/by-puuid/${puuid}?api_key=${RIOT_API_KEY}`);
         const { profileIconId, id } = await summonerRes.json();
 
-        // 🎯 본인 인증 성공! (아이콘 번호가 달라졌을 때)
         if (profileIconId !== reqData.startIconId) {
-            
-            let finalTier = "UNRANKED (언랭크)"; // 기본값 설정
-
+            let finalTier = "UNRANKED (언랭크)"; 
             try {
-                // 티어 조회
                 const leagueRes = await fetch(`https://kr.api.riotgames.com/lol/league/v4/entries/by-summoner/${id}?api_key=${RIOT_API_KEY}`);
-                
                 if (leagueRes.ok) {
                     const leagueData = await leagueRes.json();
                     const solo = leagueData.find(e => e.queueType === "RANKED_SOLO_5x5");
-                    
-                    if (solo) {
-                        // 🌟 LP 점수까지 포함하여 출력 (예: GOLD I 42LP)
-                        finalTier = `${solo.tier} ${solo.rank} ${solo.leaguePoints}LP`;
-                    }
-                } else if (leagueRes.status === 403) {
-                    finalTier = "API 키 만료됨";
-                } else if (leagueRes.status === 429) {
-                    finalTier = "라이엇 서버 과부하 (잠시 후 시도)";
-                } else {
-                    finalTier = `조회 오류 (${leagueRes.status})`;
-                }
-            } catch(e) {
-                finalTier = "서버 통신 실패";
-            }
+                    if (solo) finalTier = `${solo.tier} ${solo.rank} ${solo.leaguePoints}LP`;
+                } else if (leagueRes.status === 403) finalTier = "API 키 만료됨";
+                else if (leagueRes.status === 429) finalTier = "라이엇 서버 과부하 (잠시 후 시도)";
+                else finalTier = `조회 오류 (${leagueRes.status})`;
+            } catch(e) { finalTier = "서버 통신 실패"; }
 
-            // 서버 전용 영구 DB에 결과 저장
             verifiedUsers[soopId] = finalTier; 
             delete certRequests[soopId];
-            
             res.json({ success: true, tier: finalTier });
         } else {
-            res.json({ success: false, message: "아이콘 미변경" });
+            res.json({ success: false, message: "아직 라이엇 서버에 아이콘 변경이 반영되지 않았습니다." });
         }
-    } catch(e) { 
-        res.json({ success: false, message: "오류" }); 
-    }
+    } catch(e) { res.json({ success: false, message: "오류" }); }
 });
 
-// ⚙️ 4. API: 확장프로그램 전용 조회 창구
 app.get('/api/get-tier', (req, res) => {
     const { soopId } = req.query;
-    
-    if (verifiedUsers[soopId]) {
-        res.json({ success: true, tier: verifiedUsers[soopId] });
-    } else {
-        res.json({ success: false });
-    }
+    if (verifiedUsers[soopId]) res.json({ success: true, tier: verifiedUsers[soopId] });
+    else res.json({ success: false });
 });
 
-app.listen(PORT, () => {
-    console.log(`서버 가동 중: ${PORT}`);
-});
+app.listen(PORT, () => { console.log(`서버 가동 중: ${PORT}`); });
