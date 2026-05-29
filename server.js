@@ -1,13 +1,11 @@
 const expressServer = require('express'); 
 const app = expressServer();
 const PORT = process.env.PORT || 3000;
-
-// 🔑 Render 대시보드 Advanced에 넣었던 진짜 라이엇 API 키를 여기서 불러옵니다!
 const RIOT_API_KEY = process.env.RIOT_API_KEY; 
 
 app.use(expressServer.json());
 
-// 🖥️ 유저들이 접속했을 때 보여줄 진짜 화면
+// 🖥️ 유저들이 접속했을 때 보여줄 화면
 app.get('/', (req, res) => {
     res.send(`
         <!DOCTYPE html>
@@ -80,11 +78,51 @@ app.get('/', (req, res) => {
     `);
 });
 
-// [기능 1] 유저에게 16번 아이콘(초기 아이콘 중 하나)으로 바꾸라고 지정
+// [기능 1] 유저에게 16번 아이콘으로 바꾸라고 지정
 app.get('/api/request-cert', (req, res) => {
     res.json({ message: "인증 요청 성공", requiredIconId: 16 });
 });
 
-// [기능 2] 🎯 [진짜 개조] 유저가 친 닉네임을 라이엇 서버에 실시간으로 조회하여 아이콘 검증하기
+// [기능 2] 실시간 라이엇 검증 시스템
 app.get('/api/verify', async (req, res) => {
-    const { gameName,
+    const { gameName, tagLine } = req.query;
+    console.log(`\n🔍 [실시간 인증 검증] ${gameName}#${tagLine}`);
+
+    try {
+        const accountUrl = `https://asia.api.riotgames.com/riot/account/v1/accounts/by-riot-id/${encodeURIComponent(gameName)}/${encodeURIComponent(tagLine)}?api_key=${RIOT_API_KEY}`;
+        const accountRes = await fetch(accountUrl);
+        
+        if (!accountRes.ok) {
+            return res.json({ success: false, message: "존재하지 않는 롤 닉네임 또는 태그입니다." });
+        }
+        const accountData = await accountRes.json();
+        const puuid = accountData.puuid;
+
+        const summonerUrl = `https://kr.api.riotgames.com/lol/summoner/v4/summoners/by-puuid/${puuid}?api_key=${RIOT_API_KEY}`;
+        const summonerRes = await fetch(summonerUrl);
+        const summonerData = await summonerRes.json();
+        const currentIconId = summonerData.profileIconId;
+
+        if (currentIconId === 16) {
+            const id = summonerData.id;
+            const leagueUrl = `https://kr.api.riotgames.com/lol/league/v4/entries/by-summoner/${id}?api_key=${RIOT_API_KEY}`;
+            const leagueRes = await fetch(leagueUrl);
+            const leagueData = await leagueRes.json();
+            
+            let tier = "UNRANKED";
+            const soloRank = leagueData.find(entry => entry.queueType === "RANKED_SOLO_5x5");
+            if (soloRank) {
+                tier = soloRank.tier;
+            }
+            return res.json({ success: true, tier: tier, message: "본인 인증 및 티어 확인 완료!" });
+        } else {
+            return res.json({ success: false, message: "롤 클라이언트의 아이콘이 아직 16번으로 변경되지 않았습니다." });
+        }
+    } catch (error) {
+        return res.json({ success: false, message: "라이엇 서버와 통신 중 에러가 발생했습니다." });
+    }
+});
+
+app.listen(PORT, () => {
+    console.log(`🚀 배포용 인증 서버가 포트 ${PORT} 에서 활기차게 돌아가고 있습니다!`);
+});
