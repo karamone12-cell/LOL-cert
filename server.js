@@ -1,11 +1,13 @@
 const expressServer = require('express'); 
 const app = expressServer();
 const PORT = process.env.PORT || 3000;
+
+// 🔑 Render 대시보드 Advanced에 넣었던 진짜 라이엇 API 키를 여기서 불러옵니다!
 const RIOT_API_KEY = process.env.RIOT_API_KEY; 
 
 app.use(expressServer.json());
 
-// 🖥️ 유저들이 접속했을 때 보여줄 진짜 화면 (주소 꼬임 완전 방지 버전)
+// 🖥️ 유저들이 접속했을 때 보여줄 진짜 화면
 app.get('/', (req, res) => {
     res.send(`
         <!DOCTYPE html>
@@ -35,10 +37,8 @@ app.get('/', (req, res) => {
             </div>
 
             <script>
-                // 🎯 주소창의 진짜 도메인 주소를 알아서 추출하는 안전장치
                 const MY_SERVER_URL = window.location.origin;
 
-                // 1. 인증 시작 버튼 클릭 시
                 async function requestCert() {
                     try {
                         const res = await fetch(MY_SERVER_URL + '/api/request-cert');
@@ -51,16 +51,19 @@ app.get('/', (req, res) => {
                     }
                 }
 
-                // 2. 인증 완료 버튼 클릭 시
                 async function verifyCert() {
                     const gameName = document.getElementById('gameName').value;
                     const tagLine = document.getElementById('tagLine').value;
+                    
+                    document.getElementById('result').innerText = "🔄 라이엇 서버에서 아이콘을 확인 중입니다...";
+                    document.getElementById('result').style.color = "#f1c40f";
+
                     try {
                         const res = await fetch(MY_SERVER_URL + '/api/verify?gameName=' + encodeURIComponent(gameName) + '&tagLine=' + encodeURIComponent(tagLine));
                         const data = await res.json();
                         
                         if(data.success) {
-                            document.getElementById('result').innerText = "🎉 인증 성공!\\n이제 숲 채팅창에서 당신의 티어가 빛납니다!";
+                            document.getElementById('result').innerText = "🎉 인증 성공!\\n당신의 티어: " + data.tier + "\\n이제 숲 채팅창에서 당신의 티어가 빛납니다!";
                             document.getElementById('result').style.color = "#2ecc71";
                         } else {
                             document.getElementById('result').innerText = "❌ 인증 실패: " + data.message;
@@ -77,21 +80,11 @@ app.get('/', (req, res) => {
     `);
 });
 
-// [기능 1] 유저에게 랜덤 아이콘 번호 지정해주기
+// [기능 1] 유저에게 16번 아이콘(초기 아이콘 중 하나)으로 바꾸라고 지정
 app.get('/api/request-cert', (req, res) => {
     res.json({ message: "인증 요청 성공", requiredIconId: 16 });
 });
 
-// [기능 2] 진짜 아이콘을 바꿨는지 검증하기
-app.get('/api/verify', (req, res) => {
-    const { gameName, tagLine } = req.query;
-    console.log(`\n[인증 완료 요청 수신] ${gameName}#${tagLine}`);
-    return res.json({ 
-        success: true, 
-        message: "본인 인증에 성공했습니다! 티어 연동을 시작합니다." 
-    });
-});
-
-app.listen(PORT, () => {
-    console.log(`🚀 배포용 인증 서버가 포트 ${PORT} 에서 활기차게 돌아가고 있습니다!`);
-});
+// [기능 2] 🎯 [진짜 개조] 유저가 친 닉네임을 라이엇 서버에 실시간으로 조회하여 아이콘 검증하기
+app.get('/api/verify', async (req, res) => {
+    const { gameName,
