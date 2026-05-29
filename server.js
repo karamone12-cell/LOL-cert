@@ -5,7 +5,8 @@ const RIOT_API_KEY = process.env.RIOT_API_KEY;
 
 app.use(expressServer.json());
 
-// 📝 실시간 인증 요청서 보관함
+// 📝 실시간 인증 요청서 보관함 (유저의 처음 아이콘 번호와 만료 시간을 저장)
+// 구조: { "soopId": { startIconId: 23, expireTime: 1716999999999 } }
 const certRequests = {};
 
 // 🖥️ 유저들이 접속했을 때 보여줄 화면
@@ -40,31 +41,44 @@ app.get('/', (req, res) => {
             <script>
                 const MY_SERVER_URL = window.location.origin;
 
+                // 1. 인증 시작하기 (현재 아이콘 실시간 스냅샷 저장 + 5분 타이머 시작)
                 async function requestCert() {
+                    const gameName = document.getElementById('gameName').value;
+                    const tagLine = document.getElementById('tagLine').value;
                     const soopId = document.getElementById('soopId').value;
-                    if(!soopId) {
-                        alert("SOOP ID를 입력하거나 확장프로그램 자동 연동을 확인해 주세요!");
+                    
+                    if(!gameName || !tagLine || !soopId) {
+                        alert("모든 빈칸을 정확하게 입력해 주세요!");
                         return;
                     }
 
+                    document.getElementById('result').innerText = "🔄 라이엇 서버에서 현재 상태를 기록하는 중...";
+                    document.getElementById('result').style.color = "#f1c40f";
+
                     try {
-                        const res = await fetch(MY_SERVER_URL + '/api/request-cert?soopId=' + encodeURIComponent(soopId));
+                        const res = await fetch(MY_SERVER_URL + '/api/request-cert?gameName=' + encodeURIComponent(gameName) + '&tagLine=' + encodeURIComponent(tagLine) + '&soopId=' + encodeURIComponent(soopId));
                         const data = await res.json();
                         
-                        document.getElementById('result').innerText = "📢 [인증 시작 - 5분 제한]\\n롤 클라이언트를 켜고 프로필 아이콘을 [" + data.requiredIconId + "번]으로 변경하신 후, 제한시간 내에 아래 [2. 인증 완료하기] 버튼을 눌러주세요!";
-                        document.getElementById('result').style.color = "#f1c40f";
+                        if(data.success) {
+                            document.getElementById('result').innerText = "📢 [인증 준비 완료 - 5분 제한]\\n롤 클라이언트를 켜고 프로필 아이콘을 \\"다른 아무 아이콘\\"으로 변경하신 후,\\n제한시간 내에 아래 [2. 인증 완료하기] 버튼을 눌러주세요!";
+                            document.getElementById('result').style.color = "#f1c40f";
+                        } else {
+                            document.getElementById('result').innerText = "❌ 실패: " + data.message;
+                            document.getElementById('result').style.color = "#e45252";
+                        }
                     } catch(e) {
                         document.getElementById('result').innerText = "❌ 통신 에러 발생";
                         document.getElementById('result').style.color = "#e45252";
                     }
                 }
 
+                // 2. 인증 완료하기 (아이콘이 진짜 변했는지 대조 검증)
                 async function verifyCert() {
                     const gameName = document.getElementById('gameName').value;
                     const tagLine = document.getElementById('tagLine').value;
                     const soopId = document.getElementById('soopId').value;
                     
-                    document.getElementById('result').innerText = "🔄 라이엇 서버에서 실시간 아이콘 변경 상태를 확인 중...";
+                    document.getElementById('result').innerText = "🔄 라이엇 서버에서 아이콘 변경 여부를 확인 중...";
                     document.getElementById('result').style.color = "#f1c40f";
 
                     try {
@@ -89,24 +103,43 @@ app.get('/', (req, res) => {
     `);
 });
 
-// 🎲 1. 랜덤 아이콘 지정 + 5분 타이머 작동
-app.get('/api/request-cert', (req, res) => {
-    const { soopId } = req.query;
-    if (!soopId) return res.json({ success: false, message: "SOOP ID가 누락되었습니다." });
+// 🎲 1. 인증 시작: 유저의 현재 롤 아이콘 번호를 스냅샷으로 기록 (5분 제한)
+app.get('/api/request-cert', async (req, res) => {
+    const { gameName, tagLine, soopId } = req.query;
+    if (!gameName || !tagLine || !soopId) return res.json({ success: false, message: "입력 정보가 누락되었습니다." });
 
-    const randomIconId = Math.floor(Math.random() * 29); 
-    const expireTime = Date.now() + (5 * 60 * 1000); 
+    try {
+        // 라이엇 API로 유저 고유 PUUID 조회
+        const accountUrl = `https://asia.api.riotgames.com/riot/account/v1/accounts/by-riot-id/${encodeURIComponent(gameName)}/${encodeURIComponent(tagLine)}?api_key=${RIOT_API_KEY}`;
+        const accountRes = await fetch(accountUrl);
+        if (!accountRes.ok) return res.json({ success: false, message: "존재하지 않는 롤 닉네임 또는 태그입니다." });
+        const accountData = await accountRes.json();
+        const puuid = accountData.puuid;
 
-    certRequests[soopId] = {
-        requiredIconId: randomIconId,
-        expireTime: expireTime
-    };
+        // 현재 장착 중인 아이콘 번호 조회
+        const summonerUrl = `https://kr.api.riotgames.com/lol/summoner/v4/summoners/by-puuid/${puuid}?api_key=${RIOT_API_KEY}`;
+        const summonerRes = await fetch(summonerUrl);
+        const summonerData = await summonerRes.json();
+        const startIconId = summonerData.profileIconId;
 
-    console.log(`⏳ [인증 요청] ID: ${soopId} -> 요구 아이콘: ${randomIconId}번`);
-    return res.json({ requiredIconId: randomIconId });
+        // 5분 타이머 설정
+        const expireTime = Date.now() + (5 * 60 * 1000); 
+
+        // 장부에 현재 아이콘 스냅샷 저장
+        certRequests[soopId] = {
+            startIconId: startIconId,
+            expireTime: expireTime
+        };
+
+        console.log(`⏳ [인증 스냅샷 등록] ID: ${soopId} -> 현재 아이콘: ${startIconId}번 (5분 타임아웃 시작)`);
+        return res.json({ success: true });
+
+    } catch (error) {
+        return res.json({ success: false, message: "라이엇 서버 통신 에러" });
+    }
 });
 
-// 🎯 2. 라이엇 실시간 아이콘 비교 + 5분 만료 검증
+// 🎯 2. 인증 완료: 라이엇 서버를 다시 찔러서 아이콘이 스냅샷과 '달라졌는지' 검증
 app.get('/api/verify', async (req, res) => {
     const { gameName, tagLine, soopId } = req.query;
     
@@ -115,6 +148,7 @@ app.get('/api/verify', async (req, res) => {
         return res.json({ success: false, message: "[1. 인증 시작하기] 버튼을 먼저 눌러주세요." });
     }
 
+    // ⏰ 5분 만료 시간 체크
     if (Date.now() > userRequest.expireTime) {
         delete certRequests[soopId];
         return res.json({ success: false, message: "인증 제한시간(5분)이 만료되었습니다. 다시 시작해 주세요." });
@@ -123,10 +157,7 @@ app.get('/api/verify', async (req, res) => {
     try {
         const accountUrl = `https://asia.api.riotgames.com/riot/account/v1/accounts/by-riot-id/${encodeURIComponent(gameName)}/${encodeURIComponent(tagLine)}?api_key=${RIOT_API_KEY}`;
         const accountRes = await fetch(accountUrl);
-        
-        if (!accountRes.ok) {
-            return res.json({ success: false, message: "존재하지 않는 롤 닉네임 또는 태그입니다." });
-        }
+        if (!accountRes.ok) return res.json({ success: false, message: "존재하지 않는 롤 닉네임 또는 태그입니다." });
         const accountData = await accountRes.json();
         const puuid = accountData.puuid;
 
@@ -135,7 +166,12 @@ app.get('/api/verify', async (req, res) => {
         const summonerData = await summonerRes.json();
         const currentIconId = summonerData.profileIconId;
 
-        if (currentIconId === userRequest.requiredIconId) {
+        console.log(`[실시간 대조] 처음 아이콘: ${userRequest.startIconId}번 -> 현재 아이콘: ${currentIconId}번`);
+
+        // 🎯 핵심 검증: 현재 아이콘이 처음 기록한 아이콘과 "다르기만 하면" 통과!
+        if (currentIconId !== userRequest.startIconId) {
+            
+            // 일치 확인되었으니 실시간 티어 조회
             const id = summonerData.id;
             const leagueUrl = `https://kr.api.riotgames.com/lol/league/v4/entries/by-summoner/${id}?api_key=${RIOT_API_KEY}`;
             const leagueRes = await fetch(leagueUrl);
@@ -147,10 +183,11 @@ app.get('/api/verify', async (req, res) => {
                 tier = soloRank.tier;
             }
 
-            delete certRequests[soopId];
+            delete certRequests[soopId]; // 인증 성공 시 장부 폐기
+            console.log(`🎉 [인증 최종 성공] ${soopId} -> 티어: ${tier}`);
             return res.json({ success: true, tier: tier });
         } else {
-            return res.json({ success: false, message: `아이콘 번호가 일치하지 않습니다. (요구된 번호: ${userRequest.requiredIconId}번 / 현재 내 아이콘: ${currentIconId}번)` });
+            return res.json({ success: false, message: "롤 클라이언트 아이콘이 아직 변경되지 않았습니다. 다른 아이콘으로 변경 후 다시 시도해 주세요." });
         }
     } catch (error) {
         return res.json({ success: false, message: "라이엇 서버와 통신 중 에러가 발생했습니다." });
